@@ -39,7 +39,10 @@ var (
 
 // Bridge defines an object in Bridge table
 type Bridge struct {
-	UUID string `ovsdb:"_uuid"`
+	UUID   string            `ovsdb:"_uuid"`
+	Name   string            `ovsdb:"name"`
+	Ports  []string          `ovsdb:"ports"`
+	config map[string]string `ovsdb:"other_config"`
 }
 
 // OpenvSwitch defines an object in Open_vSwitch table
@@ -122,9 +125,14 @@ func NewOvsBridgeDriver(bridgeName, socketFile string) (*OvsBridgeDriver, error)
 	ovsDriver.ovsClient = ovsDB
 	ovsDriver.OvsBridgeName = bridgeName
 
+	// 判断bridge是否存在
 	bridgeExist, err := ovsDriver.IsBridgePresent(bridgeName)
 	if err != nil {
-		return nil, err
+		// create bridge
+		if err := ovsDriver.CreateBridge(bridgeName); err != nil {
+			return nil, fmt.Errorf("failed to create bridge %s: %v", bridgeName, err)
+		}
+		bridgeExist = true
 	}
 
 	if !bridgeExist {
@@ -623,6 +631,17 @@ func (ovsd *OvsDriver) IsBridgePresent(bridgeName string) (bool, error) {
 	return true, nil
 }
 
+// CreateBridge Creates a new bridge
+func (ovsd *OvsDriver) CreateBridge(bridgeName string) error {
+	operations, err := ovsd.createBridge(bridgeName)
+	if err != nil {
+		return err
+	}
+
+	_, err = ovsd.ovsdbTransact(operations)
+	return err
+}
+
 // FindBridgeByInterface returns name of the bridge that contains provided interface
 func (ovsd *OvsDriver) FindBridgeByInterface(ifaceName string) (string, error) {
 	iface, err := ovsd.findByCondition("Interface",
@@ -753,6 +772,17 @@ func (ovsd *OvsDriver) Echo([]interface{}) {
 }
 
 // ************************ Helper functions ********************
+
+func (ovsd *OvsDriver) createBridge(bridgeTable string) ([]ovsdb.Operation, error) {
+
+	ops, err := ovsd.ovsClient.Create(&Bridge{
+		Name: bridgeTable,
+	})
+
+	return ops, err
+
+}
+
 func (ovsd *OvsDriver) findByCondition(table string, condition ovsdb.Condition, columns []string) (map[string]interface{}, error) {
 	selectOp := ovsdb.Operation{
 		Op:    "select",
